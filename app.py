@@ -13,52 +13,52 @@ def add_styles():
     st.markdown("""<style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
     
-    .stApp {background:#050B0D; color:#FFFFFF; font-family: 'Inter', Arial, sans-serif;} 
-    [data-testid="stSidebar"] {background:#081217;}
+    .stApp, .stApp > header {background-color:#050B0D !important; color:#FFFFFF; font-family: 'Inter', Arial, sans-serif;} 
+    header[data-testid="stHeader"] {background-color: transparent !important; display: none !important;}
+    .block-container {padding-top: 1rem !important; padding-bottom: 2rem !important;}
+    
+    [data-testid="stSidebar"] {background:#081217 !important;}
     [data-testid="stSidebar"] * {color:#B3B3B3;} 
     [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {color:#FFFFFF !important;}
-    /* Inputs */
-    [data-testid="stTextInput"] input {background-color: #202C31 !important; color: #FFFFFF !important; border: 1px solid #263238 !important;}
-    [data-testid="stTextInput"] input::placeholder {color: #888888 !important;}
-    [data-testid="stTextInput"] input:focus {border-color: #1DB954 !important; box-shadow: none !important;}
     
-    div[data-baseweb="select"] > div {background-color: #202C31 !important; color: #FFFFFF !important; border: 1px solid #263238 !important;}
-    div[data-baseweb="select"] > div:focus-within {border-color: #1DB954 !important;}
-    div[data-baseweb="select"] span {color: #FFFFFF !important;}
+    /* Inputs */
+    [data-testid="stTextInput"] input, div[data-baseweb="select"] > div {background-color: #202C31 !important; color: #FFFFFF !important; border: 1px solid #3A4A50 !important;}
+    [data-testid="stTextInput"] input::placeholder, div[data-baseweb="select"] span {color: #B3B3B3 !important;}
+    [data-testid="stTextInput"] input:focus, div[data-baseweb="select"] > div:focus-within {border-color: #1DB954 !important; box-shadow: none !important;}
     div[data-baseweb="popover"] {background-color: #202C31 !important;}
     div[data-baseweb="popover"] ul, div[data-baseweb="popover"] li {background-color: #202C31 !important; color: #FFFFFF !important;}
     div[data-baseweb="popover"] li:hover {background-color: #1DB954 !important;}
     
     /* Metrics */
-    [data-testid="stMetric"] {background:#0D1A1E; border:1px solid #263238; padding:16px; border-radius:8px;}
-    [data-testid="stMetricValue"] {color:#FFFFFF; font-size: 32px; font-weight: 700;}
-    [data-testid="stMetricLabel"] {color:#B3B3B3; font-weight: 600;}
-    [data-testid="stMetricDelta"] svg {fill: #1DB954;}
-    [data-testid="stMetricDelta"] > div {color: #1DB954;}
+    [data-testid="stMetric"] {background:#0D1A1E !important; border:1px solid #263238 !important; padding:12px !important; border-radius:8px !important;}
+    [data-testid="stMetricValue"] {color:#FFFFFF !important; font-size: 24px !important; font-weight: 700 !important;}
+    [data-testid="stMetricLabel"] {color:#B3B3B3 !important; font-weight: 600 !important; font-size: 14px !important;}
     
     /* Buttons */
-    [data-testid="stDownloadButton"] button, .stButton button {background:#1DB954; color:#FFFFFF; border:0; font-weight:bold; border-radius:500px; width: 100%; transition: 0.2s;}
-    [data-testid="stDownloadButton"] button:hover, .stButton button:hover {background:#1ED760; color:#FFFFFF; border: 0;}
+    [data-testid="stDownloadButton"] button, .stButton button {background:#1DB954 !important; color:#FFFFFF !important; border:0 !important; font-weight:bold !important; border-radius:500px !important; transition: 0.2s !important;}
+    [data-testid="stDownloadButton"] button:hover, .stButton button:hover {background:#1ED760 !important; color:#FFFFFF !important; border: 0 !important;}
     [data-testid="stDownloadButton"] button p, .stButton button p {color:#FFFFFF !important;} 
     
     /* Clear button special styling */
-    button[kind="secondary"] {background: transparent; border: 1px solid #B3B3B3; color: #B3B3B3;}
-    button[kind="secondary"]:hover {background: #1DB954; color: #FFFFFF; border-color: #1DB954;}
+    button[kind="secondary"] {background: transparent !important; border: 1px solid #3A4A50 !important; color: #B3B3B3 !important;}
+    button[kind="secondary"]:hover {background: #1DB954 !important; color: #FFFFFF !important; border-color: #1DB954 !important;}
     button[kind="secondary"] p {color: inherit !important;}
     
     /* Typography */
-    h1, h2, h3, h4, h5 {color:#FFFFFF !important; font-weight: 700;} 
+    h1, h2, h3, h4, h5 {color:#FFFFFF !important; font-weight: 700 !important;} 
     p, span, div {color:#B3B3B3;}
     .stMarkdown p {color: #B3B3B3;}
     .small-note {color:#B3B3B3; font-size: 0.85em;}
-    hr {border-color: #263238;}
+    hr {border-color: #263238 !important; margin: 1em 0;}
     
     /* Tables */
-    [data-testid="stDataFrame"] {background-color: #0D1A1E;}
+    [data-testid="stDataFrame"] {background-color: #0D1A1E !important;}
     
     /* Radio Nav */
     div[role="radiogroup"] > label {background-color: transparent !important; padding: 10px; border-radius: 5px; cursor: pointer;}
     div[role="radiogroup"] > label:hover {background-color: #0D1A1E !important;}
+    div[role="radiogroup"] > label[data-checked="true"] {background-color: #1DB954 !important;}
+    div[role="radiogroup"] > label[data-checked="true"] * {color: #FFFFFF !important;}
     
     /* Title highlight */
     .highlight {color: #1DB954;}
@@ -140,8 +140,18 @@ if df.empty: st.warning("The dataset is empty."); st.stop()
 # ---------------- Sidebar Navigation ----------------
 st.sidebar.markdown("<h2>🟢 Spotify <br><span style='font-size:16px; font-weight:normal; color:#B3B3B3'>Music Analytics</span></h2>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
-nav_options = ["Home", "Explore Data", "Top Songs", "Top Artists", "Genre Analysis", "Audio Features", "Trends", "Recommendations", "About"]
-nav = st.sidebar.radio("Navigation", nav_options, label_visibility="collapsed")
+nav_options_map = {
+    "Home": "🏠 Home", 
+    "Explore Data": "📊 Explore Data", 
+    "Top Songs": "🎵 Top Songs", 
+    "Top Artists": "🎤 Top Artists", 
+    "Genre Analysis": "🎸 Genre Analysis", 
+    "Audio Features": "🎧 Audio Features", 
+    "Trends": "📈 Trends", 
+    "Recommendations": "💡 Recommendations", 
+    "About": "ℹ️ About"
+}
+nav = st.sidebar.radio("Navigation", list(nav_options_map.keys()), format_func=lambda x: nav_options_map[x], label_visibility="collapsed")
 st.sidebar.markdown("---")
 st.sidebar.markdown("<br><p class='small-note'>Built with Python | Pandas | NumPy | Streamlit</p>", unsafe_allow_html=True)
 
@@ -151,9 +161,8 @@ if "filter_key" not in st.session_state:
 
 # ---------------- Hero & Metrics (Home Only) ----------------
 if nav == "Home":
-    st.markdown("<h1>Welcome to <span class='highlight'>Spotify</span> Music Analytics</h1>", unsafe_allow_html=True)
-    st.markdown("### Explore the world of music through data. Discover trends, artists, genres and what makes a song popular!")
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<h3 style='margin-bottom:5px; margin-top:0;'>Welcome to <span class='highlight'>Spotify</span> Music Analytics</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#B3B3B3; font-size:14px; margin-bottom:10px;'>Explore music trends, artists, genres, and audio features through data.</p>", unsafe_allow_html=True)
     
     # Metric Cards
     metrics_cols = st.columns(4)
@@ -173,7 +182,6 @@ if nav == "Home":
 
 # ---------------- Search & Filters (Global) ----------------
 with st.container():
-    st.markdown("<div style='background:#0D1A1E; padding:15px; border-radius:8px; border:1px solid #263238;'>", unsafe_allow_html=True)
     f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns(5)
     
     search_text = f_col1.text_input("Search Song / Artist", key=f"search_{st.session_state.filter_key}", placeholder="Type a song or artist...")
@@ -194,13 +202,12 @@ with st.container():
     pop_range = f_col4.slider("Popularity Range", pop_min, pop_max, (pop_min, pop_max), key=f"pop_{st.session_state.filter_key}")
     
     with f_col5:
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
         if st.button("Clear Filters", key=f"clear_{st.session_state.filter_key}", help="Reset all filters"):
             st.session_state.filter_key += 1
             st.rerun()
             
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 10px 0 20px 0; border-color: #263238;'>", unsafe_allow_html=True)
 
 # Apply Filters
 filtered_df = df.copy()
