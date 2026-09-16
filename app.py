@@ -220,6 +220,86 @@ def get_recommendations(valid_data: pd.DataFrame, standardized: np.ndarray, targ
     return top_n
 
 
+def get_mood_recommendations(df, mood, n=10):
+    profiles = {
+        "Happy": {"valence": 0.9, "energy": 0.8, "danceability": 0.7},
+        "Sad": {"valence": 0.1, "energy": 0.2, "danceability": 0.3},
+        "Energetic": {"energy": 0.9, "danceability": 0.7},
+        "Relaxing": {"energy": 0.2, "acousticness": 0.8},
+        "Party": {"valence": 0.8, "energy": 0.9, "danceability": 0.9},
+        "Focus": {"instrumentalness": 0.9, "energy": 0.3, "speechiness": 0.1}
+    }
+    
+    if mood not in profiles: return pd.DataFrame()
+    profile = profiles[mood]
+    
+    available = [f for f in profile.keys() if f in df.columns]
+    if not available: return pd.DataFrame()
+    
+    valid_data = df.dropna(subset=available).copy()
+    if valid_data.empty: return pd.DataFrame()
+    
+    import numpy as np
+    X = valid_data[available].apply(pd.to_numeric, errors="coerce").fillna(0).values
+    X_min = X.min(axis=0)
+    X_max = X.max(axis=0)
+    
+    range_diff = X_max - X_min
+    range_diff[range_diff == 0] = 1.0
+    X_norm = (X - X_min) / range_diff
+    
+    ideal_vec = np.array([profile[f] for f in available])
+    distances = np.linalg.norm(X_norm - ideal_vec, axis=1)
+    
+    max_dist = np.sqrt(len(available))
+    scores = np.clip(1 - (distances / max_dist), 0, 1) * 100
+    
+    valid_data["mood_score"] = scores
+    
+    if "artists" in valid_data:
+        valid_data = valid_data.drop_duplicates(subset=["track_name", "artists"])
+    else:
+        valid_data = valid_data.drop_duplicates(subset=["track_name"])
+        
+    return valid_data.sort_values("mood_score", ascending=False).head(n)
+
+
+
+@st.cache_data
+def add_language_column(data: pd.DataFrame) -> pd.DataFrame:
+    """Heuristically detects song language based on available metadata keywords."""
+    df_lang = data.copy()
+    if "detected_language" in df_lang.columns:
+        return df_lang
+        
+    text_series = pd.Series("", index=df_lang.index)
+    for col in ["track_genre", "artists", "album_name", "track_name"]:
+        if col in df_lang:
+            text_series += df_lang[col].fillna("").astype(str).str.lower() + " "
+            
+    keywords = {
+        "Hindi": ["hindi", "bollywood", "desi", "indian pop", "arijit", "atif", "shreya", "neha", "jubin"],
+        "Punjabi": ["punjabi", "bhangra", "gurbani", "sidhu", "diljit", "amrinder", "karan aujla", "ap dhillon", "hardy"],
+        "Tamil": ["tamil", "kollywood", "anirudh", "yuvan"],
+        "Telugu": ["telugu", "tollywood", "dsp", "thaman"],
+        "Bengali": ["bengali", "bangla", "rabindra"],
+        "Marathi": ["marathi"],
+        "Malayalam": ["malayalam"],
+        "Kannada": ["kannada"],
+        "Gujarati": ["gujarati"],
+        "English": ["english", "pop", "rock", "r-n-b", "country"]
+    }
+    
+    def detect_lang(t):
+        for lang, words in keywords.items():
+            for word in words:
+                if word in t:
+                    return lang
+        return "Other"
+        
+    df_lang["detected_language"] = text_series.apply(detect_lang)
+    return df_lang
+
 def calculate_artist_statistics(artist_data: pd.DataFrame) -> dict:
     """Calculate report metrics only from the artist's cleaned tracks."""
     statistics = {"unique_songs": len(artist_data)}
@@ -1072,6 +1152,79 @@ elif nav == "Recommendations":
                                 
                                 st.dataframe(disp_df, use_container_width=True, hide_index=True)
 
+
+
+    st.markdown("---")
+    st.title("Mood-Based Music Explorer")
+    
+    mood_c1, mood_c2, mood_c3 = st.columns([2, 2, 1])
+    mood_choice = mood_c1.selectbox("Select a Mood", ["Happy", "Sad", "Energetic", "Relaxing", "Party", "Focus"])
+    lang_choice = mood_c2.selectbox("Select Music Language", ["All Languages", "Hindi", "Punjabi", "English", "Tamil", "Telugu", "Bengali", "Marathi", "Malayalam", "Kannada", "Gujarati", "Other"])
+    n_mood = mood_c3.selectbox("Number of songs", [5, 10, 15, 20], index=1, key="n_mood")
+    
+    st.caption("Language detection is approximate and depends on available dataset metadata.")
+    
+    mood_explanations = {
+        "Happy": "Happy mood focuses on songs with higher valence, energy, and danceability.",
+        "Sad": "Sad mood focuses on lower-energy songs with lower valence and danceability where available.",
+        "Energetic": "Energetic mood focuses on high-energy, danceable tracks.",
+        "Relaxing": "Relaxing mood focuses on lower-energy songs with higher acousticness where available.",
+        "Party": "Party mood focuses on the highest energy, danceability, and positive valence.",
+        "Focus": "Focus mood focuses on instrumental and lower-speechiness songs where available."
+    }
+    
+    st.markdown(f"<p style='color:#B3B3B3; font-style:italic;'>{mood_explanations[mood_choice]}</p>", unsafe_allow_html=True)
+    
+    if st.button("🎧 Explore Mood"):
+        with st.spinner(f"Curating {mood_choice} playlist..."):
+            df_with_lang = add_language_column(df)
+            
+            if lang_choice != "All Languages":
+                df_filtered = df_with_lang[df_with_lang["detected_language"] == lang_choice].copy()
+            else:
+                df_filtered = df_with_lang.copy()
+                
+            mood_results = get_mood_recommendations(df_filtered, mood_choice, n_mood)
+            
+            if mood_results.empty:
+                st.warning("No songs found for this mood and language combination. Try another mood or language.")
+            else:
+                st.success(f"Generated {mood_choice} Playlist!")
+                
+                st.markdown("#### Playlist Summary")
+                s_cols = st.columns(6)
+                s_cols[0].metric("Songs", len(mood_results))
+                
+                avg_pop = mood_results["popularity"].mean() if "popularity" in mood_results else 0
+                s_cols[1].metric("Avg Popularity", f"{avg_pop:.1f}")
+                
+                avg_e = mood_results["energy"].mean() if "energy" in mood_results else 0
+                s_cols[2].metric("Avg Energy", f"{avg_e:.2f}")
+                
+                avg_d = mood_results["danceability"].mean() if "danceability" in mood_results else 0
+                s_cols[3].metric("Avg Danceability", f"{avg_d:.2f}")
+                
+                avg_v = mood_results["valence"].mean() if "valence" in mood_results else "N/A"
+                s_cols[4].metric("Avg Valence", f"{avg_v:.2f}" if isinstance(avg_v, float) else "N/A")
+                
+                tot_ms = mood_results["duration_ms"].sum() if "duration_ms" in mood_results else 0
+                s_cols[5].metric("Total Duration", format_duration(tot_ms))
+                
+                st.info("This score represents similarity to the selected mood profile based on available audio features. It is not an official Spotify score.")
+                
+                mood_results["Mood Match Score"] = mood_results["mood_score"].map("{:.1f}%".format)
+                
+                disp_cols_mood = []
+                for c in ["track_name", "artists", "album_name", "popularity", "duration_formatted", "track_genre", "detected_language", "Mood Match Score"]:
+                    if c in mood_results.columns: disp_cols_mood.append(c)
+                
+                disp_df_m = mood_results[disp_cols_mood].copy()
+                disp_df_m.columns = [c.replace('_', ' ').title() if c not in ["duration_formatted", "detected_language"] else ("Duration" if c == "duration_formatted" else "Language") for c in disp_df_m.columns]
+                st.dataframe(disp_df_m, use_container_width=True, hide_index=True)
+                
+                csv_cols = [c for c in ["track_name", "artists", "album_name", "popularity", "duration_formatted", "track_genre", "detected_language", "energy", "danceability", "valence", "acousticness", "instrumentalness", "mood_score"] if c in mood_results.columns]
+                csv_data = csv_bytes(mood_results[csv_cols])
+                st.download_button(label="⬇️ Download Playlist CSV", data=csv_data, file_name=f"{mood_choice.lower()}_playlist.csv", mime="text/csv")
 
 elif nav == "About":
     st.title("About")
