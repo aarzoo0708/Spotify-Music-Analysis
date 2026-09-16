@@ -75,7 +75,12 @@ def add_styles():
 
 @st.cache_data
 def load_data(path: str) -> pd.DataFrame:
-    data = pd.read_csv(path)
+    try:
+        data = pd.read_csv(path)
+    except FileNotFoundError:
+        st.error(f"Dataset not found at `{path}`. Please ensure the data file exists for the application to run.")
+        st.stop()
+        
     for column in NUMERIC + ["duration_min", "duration_ms"]:
         if column in data:
             data[column] = pd.to_numeric(data[column], errors="coerce")
@@ -299,6 +304,21 @@ def add_language_column(data: pd.DataFrame) -> pd.DataFrame:
         
     df_lang["detected_language"] = text_series.apply(detect_lang)
     return df_lang
+
+
+from urllib.parse import quote
+
+def create_spotify_url(row):
+    if "track_id" in row and pd.notna(row["track_id"]) and str(row["track_id"]).strip() != "":
+        return f"https://open.spotify.com/track/{row['track_id']}"
+    tn = str(row.get("track_name", ""))
+    ar = str(row.get("artists", ""))
+    if tn == "nan": tn = ""
+    if ar == "nan": ar = ""
+    if not tn and not ar:
+        return "Spotify search unavailable"
+    search_text = f"{tn} {ar}".strip()
+    return f"https://open.spotify.com/search/{quote(search_text)}"
 
 def calculate_artist_statistics(artist_data: pd.DataFrame) -> dict:
     """Calculate report metrics only from the artist's cleaned tracks."""
@@ -1176,16 +1196,17 @@ elif nav == "Recommendations":
                                 st.markdown("<p class='small-note'>These songs were selected based on similarities in available audio features. This is a dataset-based numerical similarity score, not an official Spotify recommendation.</p>", unsafe_allow_html=True)
                                 
                                 recommendations["Similarity"] = (recommendations["similarity"] * 100).map("{:.1f}%".format)
+                                recommendations["Spotify Link"] = recommendations.apply(create_spotify_url, axis=1)
                                 
                                 display_cols = []
-                                for col in ["track_name", "artists", "popularity", "duration_formatted", "track_genre", "detected_language", "Similarity"]:
+                                for col in ["track_name", "artists", "popularity", "duration_formatted", "track_genre", "detected_language", "Similarity", "Spotify Link"]:
                                     if col in recommendations.columns:
                                         display_cols.append(col)
                                         
                                 disp_df = recommendations[display_cols].copy()
                                 disp_df.columns = [c.replace('_', ' ').title() if c not in ["duration_formatted", "detected_language"] else ("Duration" if c == "duration_formatted" else "Language") for c in disp_df.columns]
                                 
-                                st.dataframe(disp_df, use_container_width=True, hide_index=True)
+                                st.dataframe(disp_df, use_container_width=True, hide_index=True, column_config={"Spotify Link": st.column_config.LinkColumn("Listen on Spotify", display_text="🎧 Listen")})
                                 
                                 csv_cols = [c for c in ["track_name", "artists", "popularity", "duration_formatted", "track_genre", "detected_language", "similarity"] if c in recommendations.columns]
                                 csv_data = csv_bytes(recommendations[csv_cols])
@@ -1250,14 +1271,15 @@ elif nav == "Recommendations":
                 st.info("This score represents similarity to the selected mood profile based on available audio features. It is not an official Spotify score.")
                 
                 mood_results["Mood Match Score"] = mood_results["mood_score"].map("{:.1f}%".format)
+                mood_results["Spotify Link"] = mood_results.apply(create_spotify_url, axis=1)
                 
                 disp_cols_mood = []
-                for c in ["track_name", "artists", "album_name", "popularity", "duration_formatted", "track_genre", "detected_language", "Mood Match Score"]:
+                for c in ["track_name", "artists", "album_name", "popularity", "duration_formatted", "track_genre", "detected_language", "Mood Match Score", "Spotify Link"]:
                     if c in mood_results.columns: disp_cols_mood.append(c)
                 
                 disp_df_m = mood_results[disp_cols_mood].copy()
                 disp_df_m.columns = [c.replace('_', ' ').title() if c not in ["duration_formatted", "detected_language"] else ("Duration" if c == "duration_formatted" else "Language") for c in disp_df_m.columns]
-                st.dataframe(disp_df_m, use_container_width=True, hide_index=True)
+                st.dataframe(disp_df_m, use_container_width=True, hide_index=True, column_config={"Spotify Link": st.column_config.LinkColumn("Listen on Spotify", display_text="🎧 Listen")})
                 
                 csv_cols = [c for c in ["track_name", "artists", "album_name", "popularity", "duration_formatted", "track_genre", "detected_language", "energy", "danceability", "valence", "acousticness", "instrumentalness", "mood_score"] if c in mood_results.columns]
                 csv_data = csv_bytes(mood_results[csv_cols])
@@ -1359,25 +1381,34 @@ elif nav == "Smart Playlist":
         p_c3.metric("Language", current_pl["lang"])
         p_c4.metric("Genre", current_pl["genre"])
         
-        pdf = current_pl["df"]
-        display_cols = []
-        for c in ["track_name", "artists", "album_name", "popularity", "duration_formatted", "track_genre", "detected_language", "energy", "danceability", "valence"]:
-            if c in pdf.columns: display_cols.append(c)
+        pdf = current_pl["df"].copy()
         
-        st.dataframe(pdf[display_cols], use_container_width=True, hide_index=True)
-        
-        d_c1, d_c2 = st.columns([1, 4])
-        csv_data = csv_bytes(pdf[display_cols])
-        safe_name = "".join([c if c.isalnum() else "_" for c in current_pl['name']]).lower()
-        d_c1.download_button(label="⬇️ Download CSV", data=csv_data, file_name=f"{safe_name}.csv", mime="text/csv")
-        
-        txt_lines = [f"Playlist: {current_pl['name']}\n"]
-        for idx_t, row in pdf.iterrows():
-            tn = row.get("track_name", "Unknown")
-            ar = row.get("artists", "Unknown")
-            txt_lines.append(f"{tn} - {ar}")
-        txt_str = "\n".join(txt_lines)
-        d_c2.download_button(label="⬇️ Download TXT", data=txt_str, file_name=f"{safe_name}.txt", mime="text/plain")
+        if pdf is not None and not pdf.empty:
+            pdf["Spotify Link"] = pdf.apply(create_spotify_url, axis=1)
+            
+            display_cols = []
+            for c in ["track_name", "artists", "album_name", "popularity", "duration_formatted", "track_genre", "detected_language", "energy", "danceability", "valence", "Spotify Link"]:
+                if c in pdf.columns: display_cols.append(c)
+                
+            disp_pdf = pdf[display_cols].copy()
+            disp_pdf.columns = [c.replace('_', ' ').title() if c not in ["duration_formatted", "detected_language"] else ("Duration" if c == "duration_formatted" else "Language") for c in disp_pdf.columns]
+            
+            st.dataframe(disp_pdf, use_container_width=True, hide_index=True, column_config={"Spotify Link": st.column_config.LinkColumn("Listen on Spotify", display_text="🎧 Listen")})
+            
+            d_c1, d_c2 = st.columns([1, 4])
+            csv_data = csv_bytes(pdf[display_cols])
+            safe_name = "".join([c if c.isalnum() else "_" for c in current_pl['name']]).lower()
+            d_c1.download_button(label="⬇️ Download CSV", data=csv_data, file_name=f"{safe_name}.csv", mime="text/csv")
+            
+            txt_lines = [f"Playlist: {current_pl['name']}\n"]
+            for idx_t, row in pdf.iterrows():
+                tn = row.get("track_name", "Unknown")
+                ar = row.get("artists", "Unknown")
+                txt_lines.append(f"{idx_t+1}. {tn} - {ar}")
+            txt_str = "\n".join(txt_lines)
+            d_c2.download_button(label="⬇️ Download TXT", data=txt_str, file_name=f"{safe_name}.txt", mime="text/plain")
+        else:
+            st.warning("No songs are available in this playlist.")
         
         st.markdown("### Playlist Insights")
         i_c1, i_c2 = st.columns(2)
