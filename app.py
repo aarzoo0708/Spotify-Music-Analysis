@@ -532,6 +532,9 @@ try:
     cleaned_rows = len(df)
     duplicates_removed = original_rows - cleaned_rows
 except (OSError, pd.errors.ParserError, UnicodeDecodeError) as error: st.error(f"The dataset could not be loaded: {error}"); st.stop()
+if "playlist_history" not in st.session_state:
+    st.session_state.playlist_history = []
+
 if df.empty: st.warning("The dataset is empty."); st.stop()
 
 
@@ -548,10 +551,22 @@ nav_options_map = {
     "Audio Features": "🎧 Audio Features", 
     "Trends": "📈 Trends", 
     "Recommendations": "💡 Recommendations", 
+    "Smart Playlist": "🧠 Smart Playlist",
     "About": "ℹ️ About"
 }
 nav = st.sidebar.radio("Navigation", list(nav_options_map.keys()), format_func=lambda x: nav_options_map[x], label_visibility="collapsed")
 st.sidebar.markdown("---")
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Recently Generated Playlists")
+if st.session_state.playlist_history:
+    for idx, pl in enumerate(st.session_state.playlist_history):
+        st.sidebar.markdown(f"**{idx+1}. {pl['name']}** ({pl['n']} songs)")
+    if st.sidebar.button("Clear History", key="clear_hist"):
+        st.session_state.playlist_history = []
+        st.rerun()
+else:
+    st.sidebar.info("No generated playlists yet.")
+
 st.sidebar.markdown("<br><p class='small-note'>Built with Python | Pandas | NumPy | Streamlit</p>", unsafe_allow_html=True)
 
 # ---------------- Session State for Filters ----------------
@@ -1099,14 +1114,21 @@ elif nav == "Recommendations":
     st.markdown("Search for a song below to find similar tracks based on dataset audio features.")
     
     if has(df, ["track_name", "artists"]):
-        rec_c1, rec_c2 = st.columns([3, 1])
-        song_search = rec_c1.text_input("Search for a target song:", key="rec_search_input", placeholder="Type a song name...")
-        n_recs = rec_c2.selectbox("Number of recommendations:", [5, 10, 15, 20], index=1)
+        r_c1, r_c2, r_c3 = st.columns(3)
+        rec_lang = r_c1.selectbox("Filter Language (Optional)", ["All Languages", "Hindi", "Punjabi", "English", "Tamil", "Telugu", "Bengali", "Marathi", "Malayalam", "Kannada", "Gujarati", "Other"], key="rec_lang")
+        
+        genres_opt = ["All Genres"]
+        if "track_genre" in df.columns:
+            genres_opt.extend(sorted([str(g) for g in df["track_genre"].dropna().unique()]))
+        rec_genre = r_c2.selectbox("Filter Genre (Optional)", genres_opt, key="rec_genre")
+        
+        n_recs = r_c3.selectbox("Number of recommendations:", [5, 10, 15, 20], index=1)
+        
+        song_search = st.text_input("Search for a target song:", key="rec_search_input", placeholder="Type a song name...")
         
         song_choices = [""]
         song_lookup = {}
         if song_search:
-            # Find matching songs
             matches = df[df["track_name"].astype(str).str.contains(song_search, case=False, na=False)].head(50)
             if not matches.empty:
                 for idx, row in matches.iterrows():
@@ -1132,27 +1154,42 @@ elif nav == "Recommendations":
                             st.warning("The selected song does not have enough audio feature data to calculate similarities.")
                         else:
                             pos_idx = valid_data.index.get_loc(target_idx_df)
-                            recommendations = get_recommendations(valid_data, standardized_mat, pos_idx, n=n_recs)
+                            
+                            # Get all recommendations sorted by similarity
+                            recommendations_full = get_recommendations(valid_data, standardized_mat, pos_idx, n=len(valid_data))
+                            
+                            # Apply Language filter
+                            if rec_lang != "All Languages":
+                                recommendations_full = add_language_column(recommendations_full)
+                                recommendations_full = recommendations_full[recommendations_full["detected_language"] == rec_lang]
+                                
+                            # Apply Genre filter
+                            if rec_genre != "All Genres" and "track_genre" in recommendations_full.columns:
+                                recommendations_full = recommendations_full[recommendations_full["track_genre"].astype(str) == rec_genre]
+                                
+                            recommendations = recommendations_full.head(n_recs).copy()
                             
                             if recommendations.empty:
-                                st.warning("No similar songs could be found.")
+                                st.warning("No similar songs could be found with the selected filters. Try removing the language or genre filter.")
                             else:
                                 st.success("Recommendations found!")
-                                st.markdown("<p class='small-note'>These songs were selected based on similarities in available audio features such as energy, danceability, valence, tempo, and acousticness. This is a dataset-based numerical similarity score, not an official Spotify recommendation.</p>", unsafe_allow_html=True)
+                                st.markdown("<p class='small-note'>These songs were selected based on similarities in available audio features. This is a dataset-based numerical similarity score, not an official Spotify recommendation.</p>", unsafe_allow_html=True)
                                 
                                 recommendations["Similarity"] = (recommendations["similarity"] * 100).map("{:.1f}%".format)
                                 
                                 display_cols = []
-                                for col in ["track_name", "artists", "popularity", "duration_formatted", "track_genre", "Similarity"]:
+                                for col in ["track_name", "artists", "popularity", "duration_formatted", "track_genre", "detected_language", "Similarity"]:
                                     if col in recommendations.columns:
                                         display_cols.append(col)
                                         
                                 disp_df = recommendations[display_cols].copy()
-                                disp_df.columns = [c.replace('_', ' ').title() if c != "duration_formatted" else "Duration" for c in disp_df.columns]
+                                disp_df.columns = [c.replace('_', ' ').title() if c not in ["duration_formatted", "detected_language"] else ("Duration" if c == "duration_formatted" else "Language") for c in disp_df.columns]
                                 
                                 st.dataframe(disp_df, use_container_width=True, hide_index=True)
-
-
+                                
+                                csv_cols = [c for c in ["track_name", "artists", "popularity", "duration_formatted", "track_genre", "detected_language", "similarity"] if c in recommendations.columns]
+                                csv_data = csv_bytes(recommendations[csv_cols])
+                                st.download_button(label="⬇️ Download Recommendations CSV", data=csv_data, file_name="recommendations.csv", mime="text/csv")
 
     st.markdown("---")
     st.title("Mood-Based Music Explorer")
@@ -1225,6 +1262,141 @@ elif nav == "Recommendations":
                 csv_cols = [c for c in ["track_name", "artists", "album_name", "popularity", "duration_formatted", "track_genre", "detected_language", "energy", "danceability", "valence", "acousticness", "instrumentalness", "mood_score"] if c in mood_results.columns]
                 csv_data = csv_bytes(mood_results[csv_cols])
                 st.download_button(label="⬇️ Download Playlist CSV", data=csv_data, file_name=f"{mood_choice.lower()}_playlist.csv", mime="text/csv")
+
+elif nav == "Smart Playlist":
+    st.title("Smart Playlist Generator")
+    st.markdown("Create a personalized playlist using multiple intelligent filters.")
+    
+    st.markdown("### Create Your Playlist")
+    playlist_name = st.text_input("Enter Playlist Name", value="My Smart Playlist")
+    
+    c1, c2, c3 = st.columns(3)
+    sp_mood = c1.selectbox("Select Mood", ["Any Mood", "Happy", "Sad", "Energetic", "Relaxing", "Party", "Focus"], key="sp_mood")
+    sp_lang = c2.selectbox("Select Language", ["All Languages", "Hindi", "Punjabi", "English", "Tamil", "Telugu", "Bengali", "Marathi", "Malayalam", "Kannada", "Gujarati", "Other"], key="sp_lang")
+    
+    genres = ["All Genres"]
+    if "track_genre" in df.columns:
+        valid_g = df["track_genre"].dropna().unique().tolist()
+        genres.extend(sorted([str(g) for g in valid_g]))
+    sp_genre = c3.selectbox("Select Genre", genres, key="sp_genre")
+    
+    st.markdown("### Playlist Preferences")
+    c4, c5 = st.columns(2)
+    sp_pop = c4.slider("Minimum Popularity", 0, 100, 0, key="sp_pop") if "popularity" in df.columns else 0
+    sp_n = c5.selectbox("Select Number of Songs", [5, 10, 20, 30, 50, 100], index=2, key="sp_n")
+    
+    audio_cols_ui = [col for col in ["energy", "danceability", "valence", "acousticness"] if col in df.columns]
+    sp_audio_prefs = {}
+    if audio_cols_ui:
+        st.markdown("Optional Audio Preferences")
+        a_cols = st.columns(len(audio_cols_ui))
+        for idx, ac in enumerate(audio_cols_ui):
+            sp_audio_prefs[ac] = a_cols[idx].selectbox(ac.title(), ["Any", "Low", "Medium", "High"], key=f"sp_a_{ac}")
+            
+    if st.button("Generate Smart Playlist", type="primary"):
+        with st.spinner("Generating playlist..."):
+            sp_df = df.copy()
+            
+            if sp_genre != "All Genres" and "track_genre" in sp_df.columns:
+                sp_df = sp_df[sp_df["track_genre"].astype(str) == sp_genre]
+                
+            if "popularity" in sp_df.columns:
+                sp_df = sp_df[pd.to_numeric(sp_df["popularity"], errors="coerce").fillna(0) >= sp_pop]
+                
+            if sp_lang != "All Languages":
+                sp_df = add_language_column(sp_df)
+                sp_df = sp_df[sp_df["detected_language"] == sp_lang]
+                
+            for ac, val in sp_audio_prefs.items():
+                if val != "Any":
+                    ac_series = pd.to_numeric(sp_df[ac], errors="coerce")
+                    if val == "Low": sp_df = sp_df[ac_series <= 0.33]
+                    elif val == "Medium": sp_df = sp_df[(ac_series > 0.33) & (ac_series <= 0.66)]
+                    elif val == "High": sp_df = sp_df[ac_series > 0.66]
+            
+            if "track_name" in sp_df.columns:
+                sp_df = sp_df.dropna(subset=["track_name"])
+            
+            if sp_df.empty:
+                st.warning("No songs found for these playlist settings.\nTry changing the mood, language, genre, or popularity filter.")
+            else:
+                if sp_mood != "Any Mood":
+                    mood_results = get_mood_recommendations(sp_df, sp_mood, sp_n)
+                else:
+                    if "popularity" in sp_df.columns:
+                        mood_results = sp_df.sort_values("popularity", ascending=False)
+                    else:
+                        mood_results = sp_df.sample(frac=1, random_state=42)
+                    subset_cols = ["track_name", "artists"] if "artists" in mood_results.columns else ["track_name"]
+                    mood_results = mood_results.drop_duplicates(subset=subset_cols).head(sp_n)
+                    
+                if mood_results.empty:
+                    st.warning("No songs found for these playlist settings.\nTry changing the mood, language, genre, or popularity filter.")
+                else:
+                    st.success("Playlist Generated Successfully!")
+                    st.session_state.playlist_history.insert(0, {
+                        "name": playlist_name,
+                        "mood": sp_mood,
+                        "lang": sp_lang,
+                        "genre": sp_genre,
+                        "n": len(mood_results),
+                        "df": mood_results.copy()
+                    })
+                    if len(st.session_state.playlist_history) > 10:
+                        st.session_state.playlist_history.pop()
+
+    if st.session_state.playlist_history:
+        st.markdown("---")
+        st.markdown("### Generated Playlist")
+        history_names = [f"{idx+1}. {pl['name']}" for idx, pl in enumerate(st.session_state.playlist_history)]
+        selected_hist = st.selectbox("View Generated Playlist", history_names, index=0)
+        selected_idx = int(selected_hist.split(".")[0]) - 1
+        current_pl = st.session_state.playlist_history[selected_idx]
+        
+        p_c1, p_c2, p_c3, p_c4 = st.columns(4)
+        p_c1.metric("Songs", current_pl["n"])
+        p_c2.metric("Mood", current_pl["mood"])
+        p_c3.metric("Language", current_pl["lang"])
+        p_c4.metric("Genre", current_pl["genre"])
+        
+        pdf = current_pl["df"]
+        display_cols = []
+        for c in ["track_name", "artists", "album_name", "popularity", "duration_formatted", "track_genre", "detected_language", "energy", "danceability", "valence"]:
+            if c in pdf.columns: display_cols.append(c)
+        
+        st.dataframe(pdf[display_cols], use_container_width=True, hide_index=True)
+        
+        d_c1, d_c2 = st.columns([1, 4])
+        csv_data = csv_bytes(pdf[display_cols])
+        safe_name = "".join([c if c.isalnum() else "_" for c in current_pl['name']]).lower()
+        d_c1.download_button(label="⬇️ Download CSV", data=csv_data, file_name=f"{safe_name}.csv", mime="text/csv")
+        
+        txt_lines = [f"Playlist: {current_pl['name']}\n"]
+        for idx_t, row in pdf.iterrows():
+            tn = row.get("track_name", "Unknown")
+            ar = row.get("artists", "Unknown")
+            txt_lines.append(f"{tn} - {ar}")
+        txt_str = "\n".join(txt_lines)
+        d_c2.download_button(label="⬇️ Download TXT", data=txt_str, file_name=f"{safe_name}.txt", mime="text/plain")
+        
+        st.markdown("### Playlist Insights")
+        i_c1, i_c2 = st.columns(2)
+        with i_c1:
+            st.markdown("**Audio Profile**")
+            acols = [c for c in ["energy", "danceability", "valence", "acousticness", "instrumentalness", "tempo"] if c in pdf.columns]
+            if acols:
+                avg_audio = pdf[acols].apply(pd.to_numeric, errors="coerce").mean().dropna()
+                if not avg_audio.empty:
+                    f = create_radar_chart(avg_audio, "Average Features", "#1DB954")
+                    st.pyplot(f); plt.close(f)
+        with i_c2:
+            if "artists" in pdf.columns:
+                st.markdown("**Top Artists**")
+                st.dataframe(pdf["artists"].value_counts().head(5).reset_index(name="Count"), hide_index=True)
+            if "track_genre" in pdf.columns:
+                st.markdown("**Top Genres**")
+                st.dataframe(pdf["track_genre"].value_counts().head(5).reset_index(name="Count"), hide_index=True)
+
 
 elif nav == "About":
     st.title("About")
